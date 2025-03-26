@@ -12,6 +12,7 @@ class Go2Web:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9'
         }
+
         self.lang_to_cc = {
             'en': 'US',
             'de': 'DE',
@@ -22,7 +23,6 @@ class Go2Web:
             'it': 'IT',
             'ru': 'RU',
             'pt': 'BR'
-            # Add more if needed
         }
 
     def make_http_request(self, url):
@@ -39,6 +39,7 @@ class Go2Web:
         except requests.RequestException as e:
             return f"Error fetching URL: {e}"
 
+
     def search_bing(self, query, lang='en'):
         """Perform a web search using Bing with optional language support."""
         try:
@@ -50,10 +51,12 @@ class Go2Web:
             response.raise_for_status()
 
             soup = BeautifulSoup(response.text, 'html.parser')
+
             results = []
             for i, result in enumerate(soup.find_all('li', class_='b_algo'), 1):
                 link = result.find('a')
                 if link and link.get('href'):
+
                     title = result.find('h2')
                     title_text = title.get_text(strip=True) if title else 'Untitled'
                     url = link.get('href')
@@ -62,6 +65,7 @@ class Go2Web:
                 if i == 10:
                     break
             return results if results else ["No search results found."]
+
         except requests.RequestException as e:
             return [f"Search error: {e}"]
 
@@ -69,8 +73,9 @@ def main():
     parser = argparse.ArgumentParser(description="Go2Web CLI Tool", add_help=False)
     parser.add_argument('-u', '--url', type=str, help='URL to request')
     parser.add_argument('-s', '--search', type=str, help='Search term')
+
     parser.add_argument('-l', '--lang', type=str, default='en', help='Language code (e.g., en, de, fr, zh)')
-    parser.add_argument('-h', '--help', action='store_true', help='Show help')
+
 
     args = parser.parse_args()
     go2web = Go2Web()
