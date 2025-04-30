@@ -3,6 +3,9 @@ import argparse
 import re
 import socket
 import ssl
+import json
+import os
+import time
 from urllib.parse import quote_plus, urlparse
 from bs4 import BeautifulSoup
 
@@ -107,7 +110,55 @@ class Go2Web:
             'Accept-Language': 'en-US,en;q=0.9'
         }
         self.http_client = CustomHTTPRequest()
-        self.search_results_cache = {}  # Cache to store search results
+        self.cache_dir = os.path.join(os.path.expanduser("~"), ".go2web_cache")
+        self.search_cache_file = os.path.join(self.cache_dir, "search_cache.json")
+        self.search_results_cache = self._load_cache()
+        
+    def _load_cache(self):
+        """Load search cache from file"""
+        # Create cache directory if it doesn't exist
+        if not os.path.exists(self.cache_dir):
+            try:
+                os.makedirs(self.cache_dir)
+            except Exception as e:
+                print(f"Warning: Failed to create cache directory: {e}")
+                return {}
+                
+        # Load cache from file if it exists
+        if os.path.exists(self.search_cache_file):
+            try:
+                # Load cache data
+                print("Loading cache...")
+                with open(self.search_cache_file, 'r', encoding='utf-8') as f:
+                    cache_data = json.load(f)
+                    
+                    # Convert the cache data back to the format we need
+                    search_cache = {}
+                    for query, entry in cache_data.items():
+                        if time.time() - entry.get('timestamp', 0) < 86400:  # 24 hour cache validity
+                            search_cache[query] = entry.get('results', [])
+                    
+                    return search_cache
+            except Exception as e:
+                print(f"Warning: Failed to load cache: {e}")
+                return {}
+        return {}
+        
+    def _save_cache(self):
+        """Save search cache to file"""
+        try:
+            # Save cache to file
+            cache_data = {}
+            for query, results in self.search_results_cache.items():
+                cache_data[query] = {
+                    'results': results,
+                    'timestamp': time.time()
+                }
+                
+            with open(self.search_cache_file, 'w', encoding='utf-8') as f:
+                json.dump(cache_data, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"Warning: Failed to save cache: {e}")
         
     def make_http_request(self, url):
         """Make an HTTP request and return clean text."""
@@ -135,7 +186,6 @@ class Go2Web:
             soup = BeautifulSoup(response.text, 'html.parser')
             result_blocks = soup.find_all('div', class_='snippet')
             results = []
-            raw_results = []  # Store raw URL and title for caching
             
             # Counter for displayed results (to ensure no gaps in numbering)
             result_counter = 1
@@ -152,7 +202,6 @@ class Go2Web:
                         # Only add if we have both URL and title
                         if url and title:
                             results.append(f"{result_counter}. {title}\n\033[94m{url}\033[0m")
-                            raw_results.append({"url": url, "title": title})
                             result_counter += 1
                             
                             # Stop after we have 10 valid results
@@ -163,7 +212,9 @@ class Go2Web:
                     continue
                     
             # Cache the results
-            self.search_results_cache[query] = results
+            if results:
+                self.search_results_cache[query] = results
+                self._save_cache()  # Save to persistent cache
             
             return results if results else ["No search results found."]
         except RequestException as e:
@@ -175,6 +226,7 @@ def main():
     parser.add_argument('-s', '--search', type=str, help='Search term')
     parser.add_argument('-a', '--access', nargs=2, metavar=('SEARCH_TERM', 'RESULT_NUMBER'), 
                         help='Access a specific search result by number (e.g., -a "python tutorial" 3)')
+    parser.add_argument('-c', '--clear-cache', action='store_true', help='Clear the search cache')
     parser.add_argument('-h', '--help', action='store_true', help='Show help')
     args = parser.parse_args()
     
@@ -182,6 +234,17 @@ def main():
     
     if args.help:
         parser.print_help()
+        return
+        
+    if args.clear_cache:
+        try:
+            if os.path.exists(go2web.search_cache_file):
+                os.remove(go2web.search_cache_file)
+                print("Cache cleared successfully.")
+            else:
+                print("No cache file found.")
+        except Exception as e:
+            print(f"Error clearing cache: {e}")
         return
         
     if args.url:
@@ -222,7 +285,7 @@ def main():
             print("Error: Result number must be an integer")
             
     # If no arguments provided, show help
-    if not (args.url or args.search or args.access or args.help):
+    if not (args.url or args.search or args.access or args.clear_cache or args.help):
         parser.print_help()
         
 if __name__ == "__main__":
