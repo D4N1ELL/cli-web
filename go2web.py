@@ -135,6 +135,7 @@ class Go2Web:
             soup = BeautifulSoup(response.text, 'html.parser')
             result_blocks = soup.find_all('div', class_='snippet')
             results = []
+
             raw_results = []  # Store raw URL and title for caching
             
             # Counter for displayed results (to ensure no gaps in numbering)
@@ -164,7 +165,6 @@ class Go2Web:
                     
             # Cache the results
             self.search_results_cache[query] = results
-            
             return results if results else ["No search results found."]
         except RequestException as e:
             return [f"Search error: {e}"]
@@ -173,8 +173,10 @@ def main():
     parser = argparse.ArgumentParser(description="Go2Web CLI Tool", add_help=False)
     parser.add_argument('-u', '--url', type=str, help='URL to request')
     parser.add_argument('-s', '--search', type=str, help='Search term')
+
     parser.add_argument('-a', '--access', nargs=2, metavar=('SEARCH_TERM', 'RESULT_NUMBER'), 
                         help='Access a specific search result by number (e.g., -a "python tutorial" 3)')
+
     parser.add_argument('-h', '--help', action='store_true', help='Show help')
     args = parser.parse_args()
     
@@ -220,6 +222,7 @@ def main():
                 
         except ValueError:
             print("Error: Result number must be an integer")
+
             
     # If no arguments provided, show help
     if not (args.url or args.search or args.access or args.help):
