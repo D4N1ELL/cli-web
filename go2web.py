@@ -246,7 +246,7 @@ def main():
         except Exception as e:
             print(f"Error clearing cache: {e}")
         return
-        
+
     if args.url:
         print(go2web.make_http_request(args.url))
         
@@ -286,6 +286,7 @@ def main():
             
     # If no arguments provided, show help
     if not (args.url or args.search or args.access or args.clear_cache or args.help):
+
         parser.print_help()
         
 if __name__ == "__main__":
