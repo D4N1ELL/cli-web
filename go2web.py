@@ -107,6 +107,7 @@ class Go2Web:
             'Accept-Language': 'en-US,en;q=0.9'
         }
         self.http_client = CustomHTTPRequest()
+        self.search_results_cache = {}  # Cache to store search results
         
     def make_http_request(self, url):
         """Make an HTTP request and return clean text."""
@@ -123,6 +124,10 @@ class Go2Web:
     def search_web(self, query):
         """Perform a web search using Brave"""
         try:
+            # Check if we have cached results for this query
+            if query in self.search_results_cache:
+                return self.search_results_cache[query]
+                
             encoded_query = quote_plus(query)
             search_url = f"https://search.brave.com/search?q={encoded_query}"
             response = self.http_client.get(search_url, headers=self.headers)
@@ -130,15 +135,36 @@ class Go2Web:
             soup = BeautifulSoup(response.text, 'html.parser')
             result_blocks = soup.find_all('div', class_='snippet')
             results = []
-            for i, block in enumerate(result_blocks):
-                a_tag = block.find('a', href=True)
-                title_tag = block.find('h3') or block.find('span')
-                if a_tag and title_tag:
-                    url = a_tag['href']
-                    title = title_tag.get_text(strip=True)
-                    results.append(f"{i+1}. {title}\n\033[94m{url}\033[0m")
-                if i == 10:
-                    break
+
+            raw_results = []  # Store raw URL and title for caching
+            
+            # Counter for displayed results (to ensure no gaps in numbering)
+            result_counter = 1
+            
+            for block in result_blocks[:12]:  # Try to get more than 10 in case some fail
+                try:
+                    a_tag = block.find('a', href=True)
+                    title_tag = block.find('h3') or block.find('span')
+                    
+                    if a_tag and title_tag:
+                        url = a_tag['href']
+                        title = title_tag.get_text(strip=True)
+                        
+                        # Only add if we have both URL and title
+                        if url and title:
+                            results.append(f"{result_counter}. {title}\n\033[94m{url}\033[0m")
+                            raw_results.append({"url": url, "title": title})
+                            result_counter += 1
+                            
+                            # Stop after we have 10 valid results
+                            if result_counter > 10:
+                                break
+                except Exception as e:
+                    # Skip any result that causes an error during processing
+                    continue
+                    
+            # Cache the results
+            self.search_results_cache[query] = results
             return results if results else ["No search results found."]
         except RequestException as e:
             return [f"Search error: {e}"]
@@ -147,6 +173,10 @@ def main():
     parser = argparse.ArgumentParser(description="Go2Web CLI Tool", add_help=False)
     parser.add_argument('-u', '--url', type=str, help='URL to request')
     parser.add_argument('-s', '--search', type=str, help='Search term')
+
+    parser.add_argument('-a', '--access', nargs=2, metavar=('SEARCH_TERM', 'RESULT_NUMBER'), 
+                        help='Access a specific search result by number (e.g., -a "python tutorial" 3)')
+
     parser.add_argument('-h', '--help', action='store_true', help='Show help')
     args = parser.parse_args()
     
@@ -163,9 +193,39 @@ def main():
         results = go2web.search_web(args.search)
         for result in results:
             print(result)
+    
+    if args.access:
+        search_term = args.access[0]
+        try:
+            result_number = int(args.access[1])
+            if result_number < 1:
+                print("Error: Result number must be positive")
+                return
+                
+            results = go2web.search_web(search_term)
+            if not results or results[0] == "No search results found." or len(results) < result_number:
+                print(f"Error: Result #{result_number} not found for '{search_term}'")
+                return
+                
+            # Extract URL from the selected result (URL is after the newline in blue color)
+            selected_result = results[result_number - 1]
+            url_match = re.search(r'\033\[94m(.*?)\033\[0m', selected_result)
+            
+            if url_match:
+                url = url_match.group(1)
+                print(f"Accessing result #{result_number} for '{search_term}':")
+                print(f"URL: {url}")
+                print("\nContent:")
+                print(go2web.make_http_request(url))
+            else:
+                print(f"Error: Could not extract URL from result #{result_number}")
+                
+        except ValueError:
+            print("Error: Result number must be an integer")
+
             
     # If no arguments provided, show help
-    if not (args.url or args.search or args.help):
+    if not (args.url or args.search or args.access or args.help):
         parser.print_help()
         
 if __name__ == "__main__":
