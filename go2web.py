@@ -246,7 +246,7 @@ def main():
         except Exception as e:
             print(f"Error clearing cache: {e}")
         return
-        
+      
     if args.url:
         print(go2web.make_http_request(args.url))
         
