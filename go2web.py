@@ -127,8 +127,7 @@ class Go2Web:
         # Load cache from file if it exists
         if os.path.exists(self.search_cache_file):
             try:
-                # Load cache data
-                print("Loading cache...")
+                # Load cache data silently
                 with open(self.search_cache_file, 'r', encoding='utf-8') as f:
                     cache_data = json.load(f)
                     
@@ -159,16 +158,60 @@ class Go2Web:
                 json.dump(cache_data, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"Warning: Failed to save cache: {e}")
-        
+    
+    def format_content(self, html_content, url):
+        """Format HTML content to be more readable for humans"""
+        try:
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            # Extract title
+            title = soup.title.string if soup.title else "No title"
+            
+            # Extract main text content
+            # Remove script and style elements
+            for script in soup(["script", "style"]):
+                script.extract()
+                
+            # Get text and normalize whitespace
+            text = soup.get_text(separator='\n')
+            lines = (line.strip() for line in text.splitlines())
+            chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+            text = '\n'.join(chunk for chunk in chunks if chunk)
+            
+            # Add some formatting
+            url_domain = urlparse(url).netloc
+            header = f"\n{'=' * 80}\n"
+            header += f"\033[1m{title}\033[0m\n"
+            header += f"\033[94m{url}\033[0m  |  Domain: {url_domain}\n"
+            header += f"{'=' * 80}\n\n"
+            
+            # Format the text content with some basic structure
+            paragraphs = text.split('\n\n')
+            formatted_content = header
+            
+            # Limit to a reasonable number of paragraphs
+            max_paragraphs = 25
+            for i, para in enumerate(paragraphs):
+                if i >= max_paragraphs:
+                    formatted_content += f"\n\n[...] Content truncated. The page contains more content."
+                    break
+                if para.strip():
+                    formatted_content += f"{para.strip()}\n\n"
+            
+            return formatted_content
+            
+        except Exception as e:
+            return f"Error formatting content: {e}\n\nRaw content:\n{html_content[:2000]}..."
+            
     def make_http_request(self, url):
-        """Make an HTTP request and return clean text."""
+        """Make an HTTP request and return human-readable formatted text."""
         try:
             response = self.http_client.get(url, headers=self.headers)
             response.raise_for_status()
-            # Remove HTML tags
-            clean_text = re.sub('<[^<]+?>', '', response.text)
-            clean_text = re.sub(r'\s+', ' ', clean_text).strip()
-            return clean_text
+            
+            # Format the response for human readability
+            return self.format_content(response.text, url)
+            
         except RequestException as e:
             return f"Error fetching URL: {e}"
             
@@ -177,6 +220,7 @@ class Go2Web:
         try:
             # Check if we have cached results for this query
             if query in self.search_results_cache:
+                print(f"Loading cached results for '{query}'...")
                 return self.search_results_cache[query]
                 
             encoded_query = quote_plus(query)
@@ -246,7 +290,7 @@ def main():
         except Exception as e:
             print(f"Error clearing cache: {e}")
         return
-        
+
     if args.url:
         print(go2web.make_http_request(args.url))
         
