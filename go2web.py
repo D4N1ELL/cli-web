@@ -11,11 +11,93 @@ from bs4 import BeautifulSoup
 
 class CustomHTTPRequest:
     """A custom implementation of HTTP requests without external libraries."""
+
     def __init__(self):
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9'
         }
+        
+    def get(self, url, headers=None):
+        """Make a GET request to the specified URL."""
+        combined_headers = self.headers.copy()
+        if headers:
+            combined_headers.update(headers)
+        
+        parsed_url = urlparse(url)
+        host = parsed_url.netloc
+        path = parsed_url.path
+        if not path:
+            path = "/"
+        if parsed_url.query:
+            path += "?" + parsed_url.query
+            
+        # Determine if HTTPS or HTTP
+        is_https = parsed_url.scheme == 'https'
+        port = 443 if is_https else 80
+        
+        # Prepare request
+        request = f"GET {path} HTTP/1.1\r\n"
+        request += f"Host: {host}\r\n"
+        
+        # Add headers
+        for key, value in combined_headers.items():
+            request += f"{key}: {value}\r\n"
+        
+        request += "Connection: close\r\n\r\n"
+        
+        # Create socket connection
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            
+            if is_https:
+                context = ssl.create_default_context()
+                sock = context.wrap_socket(sock, server_hostname=host)
+                
+            sock.connect((host, port))
+            sock.sendall(request.encode())
+            
+            # Receive response
+            response = b""
+            while True:
+                data = sock.recv(4096)
+                if not data:
+                    break
+                response += data
+                
+            sock.close()
+            
+            # Parse response
+            response_str = response.decode('utf-8', errors='replace')
+            headers_end = response_str.find('\r\n\r\n')
+            
+            if headers_end == -1:
+                raise Exception("Invalid HTTP response")
+                
+            headers = response_str[:headers_end]
+            body = response_str[headers_end + 4:]
+            
+            # Check status code
+            status_line = headers.split('\r\n')[0]
+            status_code = int(status_line.split(' ')[1])
+            
+            return Response(status_code, body, headers)
+            
+        except Exception as e:
+            raise RequestException(f"Error during request: {e}")
+            
+class Response:
+    """Simple response class to mimic requests.Response."""
+    
+    def __init__(self, status_code, text, headers):
+        self.status_code = status_code
+        self.text = text
+        self.headers = headers
+        
+    def raise_for_status(self):
+        """Raises an exception if the status code indicates an error."""
+        if self.status_code >= 400:
+            raise RequestException(f"HTTP Error: {self.status_code}")
 
     def get(self, url, headers=None, max_redirects=5):
         """Make a GET request to the specified URL with redirect handling."""
@@ -181,19 +263,20 @@ class Go2Web:
             except Exception as e:
                 print(f"Warning: Failed to create cache directory: {e}")
                 return {}
-
         # Load cache from file if it exists
         if os.path.exists(self.search_cache_file):
             try:
                 # Load cache data silently
                 with open(self.search_cache_file, 'r', encoding='utf-8') as f:
                     cache_data = json.load(f)
+                    
                 # Convert the cache data back to the format we need
                 search_cache = {}
                 for query, entry in cache_data.items():
                     if time.time() - entry.get('timestamp', 0) < 86400:  # 24 hour cache validity
                         search_cache[query] = entry.get('results', [])
                 return search_cache
+
             except Exception as e:
                 print(f"Warning: Failed to load cache: {e}")
                 return {}
@@ -294,6 +377,7 @@ class Go2Web:
     def search_web(self, query):
         """Perform a web search using Brave"""
         try:
+
             # Check if we have cached results for this query
             if query in self.search_results_cache:
                 print(f"Loading cached results for '{query}'...")
@@ -303,10 +387,10 @@ class Go2Web:
             search_url = f"https://search.brave.com/search?q={encoded_query}"
             response = self.http_client.get(search_url, headers=self.headers)
             response.raise_for_status()
-
             soup = BeautifulSoup(response.text, 'html.parser')
             result_blocks = soup.find_all('div', class_='snippet')
             results = []
+
             # Counter for displayed results (to ensure no gaps in numbering)
             result_counter = 1
 
@@ -314,13 +398,16 @@ class Go2Web:
                 try:
                     a_tag = block.find('a', href=True)
                     title_tag = block.find('h3') or block.find('span')
+
                     if a_tag and title_tag:
                         url = a_tag['href']
                         title = title_tag.get_text(strip=True)
+
                         # Only add if we have both URL and title
                         if url and title:
                             results.append(f"{result_counter}. {title}\n\033[94m{url}\033[0m")
                             result_counter += 1
+                            
                         # Stop after we have 10 valid results
                         if result_counter > 10:
                             break
@@ -338,6 +425,7 @@ class Go2Web:
             return [f"Search error: {e}"]
 
 
+
 def main():
     parser = argparse.ArgumentParser(description="Go2Web CLI Tool", add_help=False)
     parser.add_argument('-u', '--url', type=str, help='URL to request')
@@ -350,10 +438,22 @@ def main():
     parser.add_argument('-h', '--help', action='store_true', help='Show help')
 
     args = parser.parse_args()
+    
     go2web = Go2Web()
-
+    
     if args.help:
         parser.print_help()
+        return
+        
+    if args.clear_cache:
+        try:
+            if os.path.exists(go2web.search_cache_file):
+                os.remove(go2web.search_cache_file)
+                print("Cache cleared successfully.")
+            else:
+                print("No cache file found.")
+        except Exception as e:
+            print(f"Error clearing cache: {e}")
         return
 
     if args.clear_cache:
@@ -374,7 +474,6 @@ def main():
         results = go2web.search_web(args.search)
         for result in results:
             print(result)
-
     if args.access:
         search_term = args.access[0]
         try:
@@ -391,6 +490,7 @@ def main():
             # Extract URL from the selected result (URL is after the newline in blue color)
             selected_result = results[result_number - 1]
             url_match = re.search(r'\033\[94m(.*?)\033\[0m', selected_result)
+
             if url_match:
                 url = url_match.group(1)
                 print(f"Accessing result #{result_number} for '{search_term}':")
